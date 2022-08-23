@@ -81,27 +81,6 @@ class UR5Robot():
         Accelerate linearly in joint space and continue with constant joint speed. 
         '''
         self.ur_c.speedJ(vel,acc)
-        
-    # def FollowPath(self,waypoints:np.array,vel,acc,blend=0.99,interp='joint',asyn=False):
-    #     '''
-    #     This might be too easy to messup
-    #     waypoints input should be N*6 for joint
-    #     The size of the blend radius is per default a shared value for all the waypoint. A smaller value will make the path turn sharper whereas a higher value will make the path smoother.
-    #     '''
-    #     path = rtde_control.Path()
-    #     if interp=='joint':
-    #         move_type = rtde_control.PathEntry.MoveJ
-    #         pos_type = rtde_control.PathEntry.PositionJoints
-    #     elif interp=='tcp':
-    #         move_type = rtde_control.PathEntry.MoveL
-    #         pos_type = rtde_control.PathEntry.PositionTcpPose
-    #     else:
-    #         raise KeyError("interpolation muct be in joint or tcp space")
-
-    #     for i in waypoints.shape[0]:
-    #         path.addEntry(rtde_control.PathEntry(move_type,pos_type, waypoints[i].tolist() + [vel, acc, blend]))
-        
-    #     self.control.movePath(path, False)
 
     #TODO verify the below two are correct
     def move_joint_path(self, waypoints:List[np.ndarray], vels, accs, blends, asyn=False):
@@ -138,18 +117,55 @@ class UR5Robot():
         p = self.ur_r.getActualTCPPose()
         return UR2RT(p)
     
-    def move_until_contact(self,vel,thres,acc=10):
+    def is_stopped(self):
+        return self.ur_c.isSteady()
+
+    def move_until_contact(self,vel,thres,acc=.25,direction=np.array((0,0,1,0,0,0))):
         assert len(vel)==6, "dimension of vel mush be 6"
         self.ur_c.speedL(vel,acceleration=acc)
-        time.sleep(1)
-        startforce = self.ur_r.getActualTCPForce()
+        time.sleep(.5)
+        startforce = np.array(self.ur_r.getActualTCPForce())
         while True:
-            force = self.ur_r.getActualTCPForce()
-            if np.linalg.norm(startforce-force)>thres:
+            force = np.array(self.ur_r.getActualTCPForce())
+            if np.linalg.norm((startforce-force).dot(direction))>thres:
                 break
             time.sleep(0.008)
         self.ur_c.speedStop()
+    
+    def move_linear(self,start,end,vel,thres=17,acc=0.25):
+        assert len(start)==3 and len(end)==3,"dimension of start and goal must be 3"
+        assert len(vel)==3, "vel is for x,y,z direction and the first nonzero one would be used"
+        
+        if abs(end[0]-start[0])>0.01:
+            direc_x = vel[0]
+            direc_y = np.clip((end[1]-start[1])/(end[0]-start[0]+1e-6),-10,10) * direc_x
+            direc_z = np.clip((end[2]-start[2])/(end[0]-start[0]+1e-6),-10,10) * direc_x
+        elif abs(end[1]-start[1]) >0.01:
+            direc_y = vel[1]
+            direc_x = np.clip((end[0]-start[0])/(end[1]-start[1]+1e-6),-10,10) * direc_y
+            direc_z = np.clip((end[2]-start[2])/(end[1]-start[1]+1e-6),-10,10) * direc_y
+        else:
+            direc_z = vel[2]
+            direc_x = np.clip((end[0]-start[0])/(end[2]-start[2]+1e-6),-10,10) * direc_z
+            direc_y = np.clip((end[1]-start[1])/(end[2]-start[2]+1e-6),-10,10) * direc_z
+            
+        
+        dire = [direc_x, direc_y, direc_z, 0, 0, 0]
+        self.ur_c.speedL(dire,accelaration=acc)
+        time.sleep(.5)
+        startforce = np.array(self.ur_r.getActualTCPForce())
+        while True:
+            force = np.array(self.ur_r.getActualTCPForce())
+            if np.linalg.norm((startforce-force).dot(dire))>thres or np.linalg.norm(self.get_pose().translation - end)<0.01:
+                break
+            time.sleep(0.008)
+        self.ur_c.speedStop()
+        
+    def start_freedrive(self):
+        self.ur_c.teachMode()
 
+    def stop_freedrive(self):
+        self.ur_c.endTeachMode()
 
 if __name__=='__main__':
     ur=UR5Robot()
