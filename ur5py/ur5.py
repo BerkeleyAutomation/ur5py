@@ -167,6 +167,9 @@ class UR5Robot():
     def stop_freedrive(self):
         self.ur_c.endTeachMode()
 
+    # def kill(self):
+    #     self.ur_c.disconnect()
+
 if __name__=='__main__':
     ur=UR5Robot()
     ur.set_tcp(RigidTransform(translation=[0,0.0,.07]))
